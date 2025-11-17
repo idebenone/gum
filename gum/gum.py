@@ -23,7 +23,7 @@ from .db_utils import (
     get_recent_propositions,
     get_recent_observations,
 )
-from .models import Observation, Proposition, init_db
+from .models import Observation, Proposition, init_db, User
 from .observers import Observer
 from .schemas import (
     PropositionItem,
@@ -112,6 +112,7 @@ class gum:
         self.Session = None
         self._db_name        = db_name
         self._data_directory = data_directory
+        self._user_id = None
 
         # Initialize batcher if enabled
         self.batcher = ObservationBatcher(
@@ -170,6 +171,10 @@ class gum:
             gum: The instance of the gum class.
         """
         await self.connect_db()
+
+        # ensure user exists in DB and cache user id
+        await self._ensure_user()
+
         self.start_update_loop()
         
         # Start batcher if enabled
@@ -177,6 +182,21 @@ class gum:
             await self.batcher.start()
             
         return self
+
+    async def _ensure_user(self) -> None:
+        """Create or fetch the user row for self.user_name and set self._user_id."""
+        from sqlalchemy import select
+
+        async with self._session() as session:
+            res = await session.execute(
+                select(User).where(User.username == self.user_name)
+            )
+            user = res.scalars().first()
+            if user is None:
+                user = User(username=self.user_name)
+                session.add(user)
+                await session.flush()
+            self._user_id = user.id
 
     async def __aexit__(self, exc_type, exc, tb):
         """Async context manager exit point.
@@ -218,17 +238,27 @@ class gum:
     async def _batch_processing_loop(self):
         """Process batched observations when minimum batch size is reached."""
         while True:
-            # Wait for batch to be ready (event-driven, no polling!)
-            await self.batcher.wait_for_batch_ready()
-            
-            # Use lock to ensure batch processing runs synchronously
-            async with self._batch_processing_lock:
-                batch = self.batcher.pop_batch()
-                self.logger.info(f"Processing batch of {len(batch)} observations")
-                await self._process_batch(batch)
+            try:
+                # Wait for batch to be ready (event-driven, no polling!)
+                self.logger.info("Batch processing loop waiting for batch to be ready...")
+                await self.batcher.wait_for_batch_ready()
+                self.logger.info("Batch ready event triggered!")
+                
+                # Use lock to ensure batch processing runs synchronously
+                async with self._batch_processing_lock:
+                    batch = self.batcher.pop_batch()
+                    self.logger.info(f"Processing batch of {len(batch)} observations")
+                    await self._process_batch(batch)
+            except asyncio.CancelledError:
+                self.logger.info("Batch processing loop cancelled")
+                break
+            except Exception as e:
+                self.logger.error(f"Error in batch processing loop: {e}")
+                self.logger.error(traceback.format_exc())
 
     async def _process_batch(self, batched_observations):
         """Process a batch of observations together to reduce API calls."""
+        self.logger.info(f"_process_batch called with {len(batched_observations)} observations")
         
         # Combine all observations into a single content for analysis
         combined_content = []
@@ -239,6 +269,7 @@ class gum:
             observation_ids.append(obs['id'])
             
         combined_text = "\n\n".join(combined_content)
+        self.logger.info(f"Combined text for propositions: {combined_text[:200]}...")
         
         # Create a combined update
         combined_update = Update(
@@ -253,6 +284,7 @@ class gum:
                 for obs in batched_observations:
                     observation = Observation(
                         observer_name=obs['observer_name'],
+                        user_id=self._user_id,
                         content=obs['content'],
                         content_type=obs['content_type'],
                     )
@@ -260,18 +292,23 @@ class gum:
                     observations.append(observation)
                 
                 await session.flush()
+                self.logger.info(f"Created {len(observations)} observations in database")
                 
                 # Process the combined content
+                self.logger.info("Starting proposition generation...")
                 pool = await self._generate_and_search(session, combined_update)
+                self.logger.info(f"Generated {len(pool)} propositions in pool")
+                
                 identical, similar, different = await self._filter_propositions(pool)
+                self.logger.info(f"Filtered propositions: identical={len(identical)}, similar={len(similar)}, different={len(different)}")
 
                 self.logger.info("Applying proposition updates for batch...")
                 await self._handle_identical(session, identical, observations)
                 await self._handle_similar(session, similar, observations)
                 await self._handle_different(session, different, observations)
                 
-                # Observations are already removed from queue by pop_batch()
-                self.logger.info(f"Completed processing batch of {len(batched_observations)} observations")
+                await session.commit()
+                self.logger.info(f"Committed batch to database. Completed processing batch of {len(batched_observations)} observations")
                 
         except Exception as e:
             self.logger.error(f"Error processing batch: {e}")
@@ -293,19 +330,24 @@ class gum:
         Returns:
             list[PropositionItem]: List of generated propositions.
         """
+        self.logger.info(f"Calling LLM to generate propositions for content: {update.content[:100]}...")
         prompt = (
             self.propose_prompt.replace("{user_name}", self.user_name)
             .replace("{inputs}", update.content)
         )
+        self.logger.debug(f"Proposition prompt: {prompt[:200]}...")
 
         schema = PropositionSchema.model_json_schema()
+        self.logger.info(f"Making API call to {self.model} for proposition generation...")
         rsp = await self.client.chat.completions.create(
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
             response_format=get_schema(schema),
         )
-
-        return json.loads(rsp.choices[0].message.content)["propositions"]
+        
+        result = json.loads(rsp.choices[0].message.content)["propositions"]
+        self.logger.info(f"Generated {len(result)} propositions from LLM")
+        return result
 
     async def _build_relation_prompt(self, all_props) -> str:
         """Build a prompt for analyzing relationships between propositions.
@@ -433,6 +475,7 @@ class gum:
             draft = Proposition(
                 text=itm["proposition"],
                 reasoning=itm["reasoning"],
+                user_id=self._user_id,
                 confidence=itm.get("confidence"),
                 decay=itm.get("decay"),
                 revision_group=str(uuid4()),
@@ -443,7 +486,7 @@ class gum:
             # search existing persisted props
             with session.no_autoflush:
                 hits = await search_propositions_bm25(
-                    session, f"{draft.text}\n{draft.reasoning}", mode="OR",
+                    session, f"{draft.text}\n{draft.reasoning}", user_id=self._user_id, mode="OR",
                     include_observations=False,
                     enable_mmr=False,
                     enable_decay=True
@@ -647,6 +690,7 @@ class gum:
             return await search_propositions_bm25(
                 session,
                 user_query,
+                user_id=self._user_id,
                 limit=limit,
                 mode=mode,
                 start_time=start_time,
@@ -666,6 +710,7 @@ class gum:
             return await get_recent_propositions(
                 session,
                 limit=limit,
+                user_id=self._user_id,
                 start_time=start_time,
                 end_time=end_time,
                 include_observations=include_observations,
@@ -683,6 +728,7 @@ class gum:
             return await get_recent_observations(
                 session,
                 limit=limit,
+                user_id=self._user_id,
                 start_time=start_time,
                 end_time=end_time,
             )

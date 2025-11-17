@@ -7,6 +7,7 @@ from typing import Optional
 
 from sqlalchemy import (
     Column,
+    Date,
     DateTime,
     ForeignKey,
     Integer,
@@ -76,6 +77,7 @@ class Observation(Base):
 
     id:            Mapped[int]   = mapped_column(primary_key=True)
     observer_name: Mapped[str]   = mapped_column(String(100), nullable=False)
+    user_id:       Mapped[int]   = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     content:       Mapped[str]   = mapped_column(Text,        nullable=False)
     content_type:  Mapped[str]   = mapped_column(String(50),  nullable=False)
 
@@ -131,6 +133,7 @@ class Proposition(Base):
     id:         Mapped[int]           = mapped_column(primary_key=True)
     text:       Mapped[str]           = mapped_column(Text, nullable=False)
     reasoning:  Mapped[str]           = mapped_column(Text, nullable=False)
+    user_id:     Mapped[int]           = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     confidence: Mapped[Optional[int]]
     decay:      Mapped[Optional[int]]
 
@@ -166,6 +169,35 @@ class Proposition(Base):
         """
         preview = (self.text[:27] + "…") if len(self.text) > 30 else self.text
         return f"<Proposition(id={self.id}, text={preview})>"
+
+
+class User(Base):
+    """Represents a user owning observations and propositions."""
+    __tablename__ = "users"
+
+    id:            Mapped[int]   = mapped_column(primary_key=True)
+    username:      Mapped[str]   = mapped_column(String(100), nullable=False, unique=True, index=True)
+    first_name:    Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    last_name:     Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    location:      Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    gender:        Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    dob:           Mapped[Optional[str]] = mapped_column(Date, nullable=True)
+    email:         Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    password:      Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+
+    observations: Mapped[list[Observation]] = relationship(
+        "Observation",
+        backref="user",
+        collection_class=list,
+        lazy="selectin",
+    )
+
+    propositions: Mapped[list[Proposition]] = relationship(
+        "Proposition",
+        backref="user",
+        collection_class=list,
+        lazy="selectin",
+    )
 
 
 FTS_TOKENIZER = "porter ascii"

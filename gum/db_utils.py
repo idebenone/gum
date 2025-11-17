@@ -51,6 +51,7 @@ async def search_propositions_bm25(
     session: AsyncSession,
     user_query: str,
     *,
+    user_id: int | None = None,
     limit: int = 3,
     mode: str = "OR",
     start_time: datetime | None = None,
@@ -105,6 +106,10 @@ async def search_propositions_bm25(
                 .where(text("observations_fts MATCH :q"))
             )
 
+            # if user_id provided, ensure both subqueries are filtered by user
+            if user_id is not None:
+                sub_p = sub_p.where(Proposition.user_id == user_id)
+                sub_o = sub_o.where(Observation.user_id == user_id)
             union_sub = sub_p.union_all(sub_o).subquery()
 
             best_scores = (
@@ -117,6 +122,9 @@ async def search_propositions_bm25(
             )
         else:
             # --- 1-a-2  WITHOUT observations -----------------
+            if user_id is not None:
+                sub_p = sub_p.where(Proposition.user_id == user_id)
+
             best_scores = (
                 select(
                     Proposition.id.label("pid"),
@@ -157,6 +165,9 @@ async def search_propositions_bm25(
     if start_time is not None:
         stmt = stmt.where(Proposition.created_at >= start_time)
     stmt = stmt.where(Proposition.created_at <= end_time)
+
+    if user_id is not None:
+        stmt = stmt.where(Proposition.user_id == user_id)
 
     if include_observations:
         stmt = stmt.options(selectinload(Proposition.observations))
@@ -251,6 +262,7 @@ async def get_recent_propositions(
     session: AsyncSession,
     *,
     limit: int = 10,
+    user_id: int | None = None,
     start_time: datetime | None = None,
     end_time: datetime | None = None,
     include_observations: bool = False,
@@ -283,6 +295,8 @@ async def get_recent_propositions(
     )
     if start_time is not None:
         stmt = stmt.where(Proposition.created_at >= start_time)
+    if user_id is not None:
+        stmt = stmt.where(Proposition.user_id == user_id)
     if include_observations:
         stmt = stmt.options(selectinload(Proposition.observations))
 
@@ -294,6 +308,7 @@ async def get_recent_observations(
     session: AsyncSession,
     *,
     limit: int = 10,
+    user_id: int | None = None,
     start_time: datetime | None = None,
     end_time: datetime | None = None,
 ) -> List[Observation]:
@@ -313,6 +328,8 @@ async def get_recent_observations(
     )
     if start_time is not None:
         stmt = stmt.where(Observation.created_at >= start_time)
+    if user_id is not None:
+        stmt = stmt.where(Observation.user_id == user_id)
 
     result = await session.execute(stmt)
     return result.scalars().all()

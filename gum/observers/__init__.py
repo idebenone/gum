@@ -5,6 +5,7 @@ This module provides observer classes for different types of user interactions.
 """
 
 from .observer import Observer
-from .screen import Screen
+# from .screen import Screen
+from .text import TextObserver
 
-__all__ = ["Observer", "Screen"] 
+__all__ = ["Observer", "TextObserver"] 

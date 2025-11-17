@@ -6,11 +6,6 @@ setup(
     packages=find_packages(),
     install_requires=[
         # Core dependencies
-        "pillow",  # For image processing
-        "mss",  # For screen capture
-        "pynput",  # For mouse/keyboard monitoring
-        "shapely",  # For geometry operations
-        "pyobjc-framework-Quartz",  # For macOS window management
         "openai>=1.0.0",
         "SQLAlchemy>=2.0.0",
         "pydantic>=2.0.0",
@@ -18,7 +13,8 @@ setup(
         "python-dotenv>=1.0.0",
         "scikit-learn",
         "aiosqlite",
-        "greenlet"
+        "greenlet",
+        "persist-queue",
     ],
     entry_points={
         'console_scripts': [

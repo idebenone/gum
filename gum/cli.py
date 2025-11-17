@@ -4,9 +4,10 @@ load_dotenv(find_dotenv(usecwd=True))
 import os
 import argparse
 import asyncio
-import shutil  
+import shutil
+import sys
 from gum import gum
-from gum.observers import Screen
+from gum.observers import TextObserver
 
 class QueryAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
@@ -33,11 +34,14 @@ def parse_args():
     
     parser.add_argument('--limit', '-l', type=int, help='Limit the number of results', default=10)
     parser.add_argument('--model', '-m', type=str, help='Model to use')
-    parser.add_argument('--reset-cache', action='store_true', help='Reset the GUM cache and exit')  # Add this line
+    parser.add_argument('--reset-cache', action='store_true', help='Reset the GUM cache and exit')
     
     # Batching configuration arguments
     parser.add_argument('--min-batch-size', type=int, help='Minimum number of observations to trigger batch processing')
     parser.add_argument('--max-batch-size', type=int, help='Maximum number of observations per batch')
+
+    parser.add_argument('--text-input', action='store_true', help='Enable text-based input instead of screen capture')
+    parser.add_argument('--api-base', type=str, help='API base URL (e.g., http://localhost:11434/v1 for Ollama)')
 
     args = parser.parse_args()
 
@@ -65,6 +69,9 @@ async def main():
     # Batching configuration - follow same pattern as other args    
     min_batch_size = args.min_batch_size or int(os.getenv('MIN_BATCH_SIZE', '5'))
     max_batch_size = args.max_batch_size or int(os.getenv('MAX_BATCH_SIZE', '15'))
+    
+    # API base URL with fallback to environment variable
+    api_base = args.api_base or os.getenv('GUM_LM_API_BASE')
 
     # you need one of: user_name for listening mode, --query, or --recent
     if user_name is None and args.query is None and not getattr(args, 'recent', False):
@@ -72,7 +79,7 @@ async def main():
         return
     
     if getattr(args, 'recent', False):
-        gum_instance = gum(user_name or os.getenv('USER_NAME') or 'default', model)
+        gum_instance = gum(user_name or os.getenv('USER_NAME') or 'default', model, api_base=api_base)
         await gum_instance.connect_db()
         props = await gum_instance.recent(limit=args.limit)
         print(f"\nRecent {len(props)} propositions:")
@@ -85,7 +92,7 @@ async def main():
             print(f"Created At: {p.created_at}")
             print("-" * 80)
     elif args.query is not None:
-        gum_instance = gum(user_name, model)
+        gum_instance = gum(user_name, model, api_base=api_base)
         await gum_instance.connect_db()
         result = await gum_instance.query(args.query, limit=args.limit)
         
@@ -101,15 +108,49 @@ async def main():
             print("-" * 80)
     else:
         print(f"Listening to {user_name} with model {model}")
-            
-        async with gum(
-            user_name, 
-            model, 
-            Screen(model),
-            min_batch_size=min_batch_size,
-            max_batch_size=max_batch_size
-        ) as gum_instance:
-            await asyncio.Future()  # run forever (Ctrl-C to stop)
+
+        if getattr(args, 'text_input', False):
+            observer = TextObserver()
+            async with gum(
+                user_name, 
+                model, 
+                observer,
+                min_batch_size=min_batch_size,
+                max_batch_size=max_batch_size,
+                api_base=api_base
+            ) as gum_instance:
+                print("Text input mode enabled. Enter text to analyze (Ctrl-C to exit):")
+                print(f"Batch settings - Min: {min_batch_size}, Max: {max_batch_size}")
+                
+                loop = asyncio.get_event_loop()
+                
+                async def input_task():
+                    """Read input in a thread to avoid blocking the event loop."""
+                    while True:
+                        try:
+                            # Run input() in a thread pool to avoid blocking
+                            text = await loop.run_in_executor(None, input, "> ")
+                            text = text.strip()
+                            if text:
+                                await observer.add_text(text)
+                                print(f"Added to batch (queue size: {gum_instance.batcher.size()})")
+                        except EOFError:
+                            break
+                        except KeyboardInterrupt:
+                            break
+                
+                await input_task()
+        # else:
+        #     observer = Screen(model)    
+        #     async with gum(
+        #         user_name, 
+        #         model, 
+        #         observer,
+        #         min_batch_size=min_batch_size,
+        #         max_batch_size=max_batch_size,
+        #         api_base=api_base
+        #     ) as gum_instance:
+        #         await asyncio.Future()  # run forever (Ctrl-C to stop)
 
 def cli():
     asyncio.run(main())
