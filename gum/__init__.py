@@ -1,11 +1,11 @@
 """
-GUM - General User Models
+gumv2 - Modular General User Models
 
-A Python package for managing user feedback and interactions.
+This package provides a modular, extensible architecture for user profiling and context-aware applications.
 """
 
-__version__ = "0.1.2"
+__version__ = "0.2.0"
 
-from .gum import gum
+from .core import gum
 
-__all__ = ["gum"] 
+__all__ = ["gum"]

@@ -22,20 +22,18 @@ import jwt
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from gum import gum as GumClass
-from gum.observers import TextObserver
+from gum_old import gum as GumClass
+from gum_old.observers import TextObserver
 
 logger = logging.getLogger("gum.api")
 app = FastAPI()
 
-# In-memory map of user_name -> gum instance
 _gums: Dict[str, GumClass] = {}
 _lock = asyncio.Lock()
 
 class ObservePayload(BaseModel):
     text: str
     model: str | None = None
-
 
 class RegisterPayload(BaseModel):
     username: str
@@ -46,7 +44,6 @@ class RegisterPayload(BaseModel):
     dob: str | None = None
     email: str | None = None
     password: str | None = None
-
 
 class LoginPayload(BaseModel):
     username: str
@@ -74,7 +71,6 @@ async def observe_text(user: str, payload: ObservePayload):
 
     g = await get_or_create_gum(user, model=payload.model)
 
-    # find any TextObserver
     text_obs = None
     for o in g.observers:
         if getattr(o, "name", "") == "TextObserver":
@@ -84,7 +80,6 @@ async def observe_text(user: str, payload: ObservePayload):
     if text_obs is None:
         raise HTTPException(status_code=500, detail="TextObserver not configured for this gum instance")
 
-    # Queue text
     await text_obs.add_text(payload.text)
     queued = g.batcher.size()
     return {"status": "ok", "queued": queued}
@@ -101,13 +96,10 @@ async def register_user(payload: RegisterPayload):
     if not payload.username or not payload.username.strip():
         raise HTTPException(status_code=400, detail="username is required")
 
-    # ensure gum instance exists (this will also create the user row if missing)
     g = await get_or_create_gum(payload.username)
 
-    # update user fields
     async with g._session() as session:
-        # import here to avoid cycles
-        from gum.models import User
+        from gum_old.models import User
 
         res = await session.execute(
             __import__("sqlalchemy").select(User).where(User.username == payload.username)
@@ -190,7 +182,7 @@ async def login_user(payload: LoginPayload):
     g = await get_or_create_gum(payload.username)
 
     async with g._session() as session:
-        from gum.models import User
+        from gum_old.models import User
         from sqlalchemy import select
 
         res = await session.execute(select(User).where(User.username == payload.username))

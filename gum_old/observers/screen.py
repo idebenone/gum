@@ -29,7 +29,7 @@ from ..schemas import Update
 from openai import AsyncOpenAI
 
 # — Local —
-from gum.prompts.screen import TRANSCRIPTION_PROMPT, SUMMARY_PROMPT
+from gum_old.prompts.screen import TRANSCRIPTION_PROMPT, SUMMARY_PROMPT
 
 ###############################################################################
 # Window‑geometry helpers                                                     #

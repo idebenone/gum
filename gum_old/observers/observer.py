@@ -1,7 +1,7 @@
 from __future__ import annotations
-import asyncio
 from abc import ABC, abstractmethod
 from typing import Optional
+import asyncio
 
 class Observer(ABC):
     """Base class for all observers in the GUM system.
@@ -19,14 +19,18 @@ class Observer(ABC):
         _running (bool): Flag indicating if the observer is currently running.
         _task (Optional[asyncio.Task]): Background task handle for the observer's worker.
     """
-    def __init__(self, name: Optional[str]=None) -> None:
+
+    def __init__(self, name: Optional[str] = None) -> None:
         self.update_queue = asyncio.Queue()
         self._name = name or self.__class__.__name__
-        self._running = True
-        self._task = asyncio.create_task(self._worker_wrapper())
 
+        # running flag + background task handle
+        self._running = True
+        self._task: asyncio.Task | None = asyncio.create_task(self._worker_wrapper())
+
+    # ─────────────────────────────── abstract worker
     @abstractmethod
-    async def _worker(self):
+    async def _worker(self) -> None:     # subclasses override
         """Main worker method that must be implemented by subclasses.
         
         This method should contain the main logic for the observer, such as monitoring
@@ -35,7 +39,8 @@ class Observer(ABC):
         """
         pass
 
-    async def _worker_wrapper(self):
+    # wrapper plugs running flag + exception handling
+    async def _worker_wrapper(self) -> None:
         """Wrapper for the worker method that handles exceptions and cleanup.
         
         This method ensures proper cleanup of resources when the worker stops,
@@ -50,8 +55,9 @@ class Observer(ABC):
         finally:
             self._running = False
 
+    # ─────────────────────────────── public API
     @property
-    def name(self):
+    def name(self) -> str:
         """Get the name of the observer.
         
         Returns:
@@ -70,7 +76,7 @@ class Observer(ABC):
         except asyncio.QueueEmpty:
             return None
 
-    async def stop(self):
+    async def stop(self) -> None:
         """Stop the observer and clean up resources.
         
         This method cancels the worker task and drains the update queue.
@@ -81,5 +87,6 @@ class Observer(ABC):
                 await self._task
             except asyncio.CancelledError:
                 pass
+        # unblock any awaiters
         while not self.update_queue.empty():
             self.update_queue.get_nowait()

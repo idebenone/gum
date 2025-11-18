@@ -1,5 +1,7 @@
+# db_utils.py
+
 from __future__ import annotations
-import json
+
 import math
 import re
 from datetime import datetime, timezone
@@ -30,68 +32,6 @@ from .models import (
 # Constants
 K_DECAY = 2.0      # decay rate for recency adjustment
 LAMBDA = 0.5       # trade-off for MMR
-
-async def filter_propositions(rel_props: list[Proposition], similar_prompt, get_schema, RelationSchema, client, model) -> tuple[list[Proposition], list[Proposition], list[Proposition]]:
-    """Filter propositions into identical, similar, and unrelated groups."""
-    if not rel_props:
-        return [], [], []
-
-    payload = [
-        {"id": p.id, "proposition": p.text, "reasoning": p.reasoning or ""}
-        for p in rel_props
-    ]
-    blocks = [
-        f"[id={p['id']}] {p['proposition']}\n    Reasoning: {p['reasoning']}"
-        for p in payload
-    ]
-    body = "\n\n".join(blocks)
-    prompt_text = similar_prompt.replace("{body}", body)
-
-    rsp = await client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt_text}],
-        response_format=get_schema(RelationSchema.model_json_schema()),
-    )
-    data = RelationSchema.model_validate_json(rsp.choices[0].message.content)
-
-    id_to_prop = {p.id: p for p in rel_props}
-    ident, sim, unrel = set(), set(), set()
-    for r in data.relations:
-        if r.label == "IDENTICAL":
-            ident.add(r.source)
-            ident.update(r.target or [])
-        elif r.label == "SIMILAR":
-            sim.add(r.source)
-            sim.update(r.target or [])
-        else:
-            unrel.add(r.source)
-    valid_ids = set(id_to_prop.keys())
-    ident &= valid_ids
-    sim &= valid_ids
-    unrel &= valid_ids
-    return (
-        [id_to_prop[i] for i in ident],
-        [id_to_prop[i] for i in sim - ident],
-        [id_to_prop[i] for i in unrel - ident - sim],
-    )
-
-async def revise_propositions(related_obs: list[Observation], similar_cluster: list[Proposition], revise_prompt, get_schema, PropositionSchema, client, model):
-    """Revise propositions based on related observations and similar propositions."""
-    blocks = [
-        f"Proposition {idx}: {p.text}\nReasoning: {p.reasoning}"
-        for idx, p in enumerate(similar_cluster, 1)
-    ]
-    if related_obs:
-        blocks.append("\nSupporting observations:")
-        blocks.extend(f"- {o.content}" for o in related_obs[:10])
-    body = "\n".join(blocks)
-    prompt = revise_prompt.replace("{body}", body)
-    rsp = await client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        response_format=get_schema(PropositionSchema.model_json_schema()),
-    )
-    return json.loads(rsp.choices[0].message.content)["propositions"]
 
 def build_fts_query(raw: str, mode: str = "OR") -> str:
     tokens = re.findall(r"\w+", raw.lower())
@@ -128,22 +68,25 @@ async def search_propositions_bm25(
 
     if has_query:
         fts_prop = Table("propositions_fts", MetaData())
-        bm25_p = literal_column("bm25(propositions_fts)").label("score")
-        sub_p = (
-            select(Proposition.id.label("pid"), bm25_p)
-            .select_from(
-                fts_prop.join(
-                    Proposition,
-                    literal_column("propositions_fts.rowid") == Proposition.id,
-                )
-            )
-            .where(text("propositions_fts MATCH :q"))
-        )
 
         if include_observations:
             # --- 1-a-1  WITH observations --------------------
-            fts_obs = Table("observations_fts", MetaData())
-            bm25_o = literal_column("bm25(observations_fts)").label("score")
+            fts_obs  = Table("observations_fts", MetaData())
+
+            bm25_p   = literal_column("bm25(propositions_fts)").label("score")
+            bm25_o   = literal_column("bm25(observations_fts)").label("score")
+
+            sub_p = (
+                select(Proposition.id.label("pid"), bm25_p)
+                .select_from(
+                    fts_prop.join(
+                        Proposition,
+                        literal_column("propositions_fts.rowid") == Proposition.id,
+                    )
+                )
+                .where(text("propositions_fts MATCH :q"))
+            )
+
             sub_o = (
                 select(observation_proposition.c.proposition_id.label("pid"), bm25_o)
                 .select_from(
@@ -159,11 +102,13 @@ async def search_propositions_bm25(
                 )
                 .where(text("observations_fts MATCH :q"))
             )
+
             # if user_id provided, ensure both subqueries are filtered by user
             if user_id is not None:
                 sub_p = sub_p.where(Proposition.user_id == user_id)
                 sub_o = sub_o.where(Observation.user_id == user_id)
             union_sub = sub_p.union_all(sub_o).subquery()
+
             best_scores = (
                 select(
                     union_sub.c.pid,
@@ -176,6 +121,7 @@ async def search_propositions_bm25(
             # --- 1-a-2  WITHOUT observations -----------------
             if user_id is not None:
                 sub_p = sub_p.where(Proposition.user_id == user_id)
+
             best_scores = (
                 select(
                     Proposition.id.label("pid"),
@@ -194,7 +140,7 @@ async def search_propositions_bm25(
         stmt = (
             select(Proposition, best_scores.c.bm25)
             .join(best_scores, best_scores.c.pid == Proposition.id)
-            .order_by(best_scores.c.bm25.asc())  # smallest→best
+            .order_by(best_scores.c.bm25.asc())          # smallest→best
         )
     else:
         # --- 1-b  No user query ------------------------------
@@ -308,6 +254,7 @@ async def get_related_observations(
     result = await session.execute(stmt)
     return result.scalars().all()
 
+
 async def get_recent_propositions(
     session: AsyncSession,
     *,
@@ -352,6 +299,7 @@ async def get_recent_propositions(
 
     result = await session.execute(stmt)
     return result.scalars().all()
+
 
 async def get_recent_observations(
     session: AsyncSession,

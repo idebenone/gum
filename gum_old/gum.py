@@ -33,7 +33,7 @@ from .schemas import (
     get_schema,
     AuditSchema
 )
-from gum.prompts.gum import AUDIT_PROMPT, PROPOSE_PROMPT, REVISE_PROMPT, SIMILAR_PROMPT
+from gum_old.prompts.gum import AUDIT_PROMPT, PROPOSE_PROMPT, REVISE_PROMPT, SIMILAR_PROMPT
 from .batcher import ObservationBatcher
 
 class gum:

@@ -5,8 +5,9 @@ import os
 import argparse
 import asyncio
 import shutil
-from gum import gum
-from gum.observers import Text
+import sys
+from gum_old import gum
+from gum_old.observers import TextObserver
 
 class QueryAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
@@ -109,7 +110,7 @@ async def main():
         print(f"Listening to {user_name} with model {model}")
 
         if getattr(args, 'text_input', False):
-            observer = Text()
+            observer = TextObserver()
             async with gum(
                 user_name, 
                 model, 

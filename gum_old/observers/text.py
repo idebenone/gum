@@ -3,7 +3,7 @@ import logging
 from .observer import Observer
 from ..schemas import Update
 
-class Text(Observer):
+class TextObserver(Observer):
     """Observer that processes text input for proposition generation.
     
     This observer allows text to be added programmatically and converts it
