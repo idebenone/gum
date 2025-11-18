@@ -120,6 +120,7 @@ async def main():
             ) as gum_instance:
                 print("Text input mode enabled. Enter text to analyze (Ctrl-C to exit):")
                 print(f"Batch settings - Min: {min_batch_size}, Max: {max_batch_size}")
+                print("NOTE: Batch processing is disabled in CLI mode. Use the API server for Redis-backed batch processing.")
                 
                 loop = asyncio.get_event_loop()
                 
@@ -132,7 +133,7 @@ async def main():
                             text = text.strip()
                             if text:
                                 await observer.add_text(text)
-                                print(f"Added to batch (queue size: {gum_instance.batcher.size()})")
+                                print(f"Added text (batch processing disabled in CLI)")
                         except EOFError:
                             break
                         except KeyboardInterrupt:

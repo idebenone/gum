@@ -37,7 +37,6 @@ from .schemas import (
     AuditSchema
 )
 from gum_old.prompts.gum import AUDIT_PROMPT, PROPOSE_PROMPT, REVISE_PROMPT, SIMILAR_PROMPT
-from .batcher import ObservationBatcher
 
 class gum:
     """A class for managing general user models.
@@ -117,15 +116,7 @@ class gum:
         self._data_directory = data_directory
         self._user_id = None
 
-        # Initialize batcher if enabled
-        self.batcher = ObservationBatcher(
-            data_directory=data_directory,
-            min_batch_size=min_batch_size,
-            max_batch_size=max_batch_size
-        )
-
         self._loop_task: asyncio.Task | None = None
-        self._batch_task: asyncio.Task | None = None
         self._batch_processing_lock = asyncio.Lock()
         self.update_handlers: list[Callable[[Observer, Update], None]] = [self._default_handler]
 
@@ -134,9 +125,6 @@ class gum:
         if self._loop_task is None:
             self._loop_task = asyncio.create_task(self._update_loop())
             
-        # Start batch processing if enabled
-        if self._batch_task is None:
-            self._batch_task = asyncio.create_task(self._batch_processing_loop())
 
     async def stop_update_loop(self):
         """Stop the asynchronous update loop and clean up resources."""
@@ -148,17 +136,6 @@ class gum:
                 pass
             self._loop_task = None
             
-        # Stop batch processing if enabled
-        if self._batch_task:
-            self._batch_task.cancel()
-            try:
-                await self._batch_task
-            except asyncio.CancelledError:
-                pass
-            self._batch_task = None
-            
-        if self.batcher:
-            await self.batcher.stop()
 
     async def connect_db(self):
         """Initialize the database connection if not already connected."""
@@ -174,16 +151,8 @@ class gum:
             gum: The instance of the gum class.
         """
         await self.connect_db()
-
-        # ensure user exists in DB and cache user id
         await self._ensure_user()
-
         self.start_update_loop()
-        
-        # Start batcher if enabled
-        if self.batcher:
-            await self.batcher.start()
-            
         return self
 
     async def _ensure_user(self) -> None:
@@ -238,26 +207,6 @@ class gum:
                 for handler in self.update_handlers:
                     asyncio.create_task(handler(obs, upd))
 
-    async def _batch_processing_loop(self):
-        """Process batched observations when minimum batch size is reached."""
-        while True:
-            try:
-                # Wait for batch to be ready (event-driven, no polling!)
-                self.logger.info("Batch processing loop waiting for batch to be ready...")
-                await self.batcher.wait_for_batch_ready()
-                self.logger.info("Batch ready event triggered!")
-                
-                # Use lock to ensure batch processing runs synchronously
-                async with self._batch_processing_lock:
-                    batch = self.batcher.pop_batch()
-                    self.logger.info(f"Processing batch of {len(batch)} observations")
-                    await self._process_batch(batch)
-            except asyncio.CancelledError:
-                self.logger.info("Batch processing loop cancelled")
-                break
-            except Exception as e:
-                self.logger.error(f"Error in batch processing loop: {e}")
-                self.logger.error(traceback.format_exc())
 
     async def _process_batch(self, batched_observations):
         if not getattr(self, '_user_id', None):
@@ -339,7 +288,63 @@ class gum:
             for obs in batched_observations:
                 key = (obs['observer_name'], self._user_id, obs['content'], obs['content_type'])
                 if key not in inserted_keys:
-                    self.batcher.push(obs['observer_name'], obs['content'], obs['content_type'])
+                    # NOTE: Re-queueing would happen via Redis in server mode
+                    self.logger.warning(f"Observation failed to insert and was not re-queued: {obs['id']}")
+
+    async def process_redis_batch(self, redis_service, count: int | None = None) -> dict:
+        """Pop observations for this instance from Redis and process them.
+
+        This method will:
+        - ensure this gum instance has a user_id
+        - atomically pop observations from Redis (via the provided service)
+        - invoke the internal _process_batch(...) routine to persist observations
+
+        On processing failure this method will attempt to re-queue the observations
+        back into Redis to avoid data loss.
+
+        Args:
+            redis_service: An instance implementing `pop_observations(username, user_id, count)` and `add_observation(...)`.
+            count: Optional max number of observations to pop/process.
+
+        Returns:
+            dict: {"processed": <n>} number of observations processed
+        """
+        # ensure we have a cached user id
+        if not getattr(self, "_user_id", None):
+            await self._ensure_user()
+
+        loop = asyncio.get_event_loop()
+        try:
+            observations = await loop.run_in_executor(None, lambda: redis_service.pop_observations(self.user_name, self._user_id, count))
+        except Exception as e:
+            self.logger.error(f"Failed to fetch observations from Redis for {self.user_name}:{self._user_id}: {e}")
+            raise
+
+        if not observations:
+            return {"processed": 0}
+
+        try:
+            await self._process_batch(observations)
+            return {"processed": len(observations)}
+        except Exception as e:
+            self.logger.error(f"Error processing Redis batch for {self.user_name}:{self._user_id}: {e}")
+            # attempt to re-queue observations back to Redis to avoid data loss
+            try:
+                def _requeue():
+                    for obs in observations:
+                        redis_service.add_observation(
+                            self.user_name,
+                            self._user_id,
+                            obs.get("observer_name", "unknown"),
+                            obs.get("content", ""),
+                            obs.get("content_type", "text"),
+                            observation_id=obs.get("id"),
+                        )
+                await loop.run_in_executor(None, _requeue)
+                self.logger.info(f"Re-queued {len(observations)} observations back to Redis for {self.user_name}")
+            except Exception as re:
+                self.logger.error(f"Failed to re-queue observations after processing failure: {re}")
+            raise
 
     async def _handle_identical(
         self, session, identical: list[Proposition], observations: list[Observation]
@@ -454,14 +459,9 @@ class gum:
 
     async def _default_handler(self, observer: Observer, update: Update) -> None:
         self.logger.info(f"Processing update from {observer.name}")
-
-        # add to batch
-        observation_id = self.batcher.push(
-            observer_name=observer.name,
-            content=update.content,
-            content_type=update.content_type
-        )
-        self.logger.info(f"Added observation {observation_id} to queue (size: {self.batcher.size()})")
+        
+        # NOTE: Observation queueing now happens at the server level via Redis.
+        # This handler is kept for potential future use but doesn't queue observations anymore.
 
     @asynccontextmanager
     async def _session(self):
