@@ -21,25 +21,24 @@ from uuid import uuid4
 
 import jwt
 from fastapi import FastAPI, HTTPException, Depends, Header
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
+from sqlalchemy import select
 
-from gum import gum as GumClass
-from gum.observers import Text
-from gum.models import User
+from .models import User, Proposition
+from .config.database import init_db
 from .schemas.gum_schemas import ObservePayload
 from .schemas.auth_schemas import LoginPayload, RegisterPayload
 
 from .services.auth_services import login_user_service, register_user_service
 from .services.redis_service import RedisObservationService
 from .services.proposition_service import process_observation_batch
-from gum.db_utils import get_user_session
 from openai import AsyncOpenAI
+from dotenv import load_dotenv
+load_dotenv()
 
 logger = logging.getLogger("gum.api")
+logger.setLevel(logging.INFO)
 app = FastAPI()
 
-# Initialize Redis observation service
 redis_service = RedisObservationService(
     redis_url=os.getenv("REDIS_URL", "redis://localhost:6379")
 )
@@ -70,6 +69,9 @@ async def _get_user_lock(username: str) -> asyncio.Lock:
 
 
 async def _background_batch_processor():
+    print("[BATCHER] Background batch processor STARTED!")
+    logger.info("[BATCHER] Background batch processor STARTED!")
+    
     """Background task to periodically process observations from Redis using stateless service.
     
     This task:
@@ -83,18 +85,25 @@ async def _background_batch_processor():
     
     logger.info(f"Background batch processor starting with config: {BACKGROUND_WORKER_CONFIG}")
     
-    # Initialize LLM client for proposition generation
-    openai_api_key = os.getenv("OPENAI_API_KEY")
-    if not openai_api_key:
-        logger.error("OPENAI_API_KEY not set; background processor will fail")
-    llm_client = AsyncOpenAI(api_key=openai_api_key) if openai_api_key else None
-    llm_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    # Get LLM configuration (OpenAI or Ollama)
+    llm_model, api_base, api_key = _get_llm_config()
+    
+    if not api_key:
+        logger.error("No LLM API key configured. Please set either OPENAI_API_KEY or GUM_LM_API_KEY.")
+        return
+    
+    # Initialize appropriate LLM client
+    if api_base:
+        # Use Ollama
+        logger.info(f"Using Ollama LLM: {llm_model} at {api_base}")
+        llm_client = AsyncOpenAI(api_key=api_key, base_url=api_base)
+    else:
+        # Use OpenAI
+        logger.info(f"Using OpenAI LLM: {llm_model}")
+        llm_client = AsyncOpenAI(api_key=api_key)
     
     while True:
         try:
-            # Sleep first to give observations time to accumulate
-            await asyncio.sleep(BACKGROUND_WORKER_CONFIG["flush_interval_seconds"])
-            
             # Get all pending users from Redis
             loop = asyncio.get_event_loop()
             pending_users = await loop.run_in_executor(
@@ -104,22 +113,24 @@ async def _background_batch_processor():
             
             if not pending_users:
                 logger.debug("No pending observations in Redis")
-                continue
+            else:
+                logger.info(f"Found {len(pending_users)} users with pending observations")
+                
+                # Process each user's observations with bounded concurrency
+                tasks = [
+                    _process_user_observations_stateless(
+                        username, user_id, semaphore, llm_client, llm_model
+                    )
+                    for username, user_id in pending_users
+                ]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                for result in results:
+                    if isinstance(result, Exception):
+                        logger.error(f"Error processing user batch: {result}")
             
-            logger.info(f"Found {len(pending_users)} users with pending observations")
-            
-            # Process each user's observations with bounded concurrency
-            tasks = [
-                _process_user_observations_stateless(
-                    username, user_id, semaphore, llm_client, llm_model
-                )
-                for username, user_id in pending_users
-            ]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            for result in results:
-                if isinstance(result, Exception):
-                    logger.error(f"Error processing user batch: {result}")
+            # Sleep after processing (or if no pending users)
+            await asyncio.sleep(BACKGROUND_WORKER_CONFIG["flush_interval_seconds"])
             
         except asyncio.CancelledError:
             logger.info("Background batch processor shutting down")
@@ -175,27 +186,28 @@ async def _process_user_observations_stateless(
                 if not observations:
                     return
                 
-                # Get database session
-                from gum.db_utils import get_user_session
-                session = await get_user_session()
-                
-                # Import prompts from gum config (or use defaults)
+                # Import prompts from gum package
                 from gum.prompts.gum import PROPOSE_PROMPT, SIMILAR_PROMPT, REVISE_PROMPT
                 
+                # Initialize DB and get Session factory
+                engine, Session = await init_db()
+                
                 try:
-                    # Call stateless proposition service
-                    result = await process_observation_batch(
-                        observations=observations,
-                        user_id=user_id,
-                        user_name=username,
-                        model=llm_model,
-                        llm_client=llm_client,
-                        session=session,
-                        propose_prompt=PROPOSE_PROMPT,
-                        similar_prompt=SIMILAR_PROMPT,
-                        revise_prompt=REVISE_PROMPT,
-                    )
-                    logger.info(f"Processed observations for {username}:{user_id}: {result}")
+                    # Create a session context
+                    async with Session() as session:
+                        async with session.begin():
+                            result = await process_observation_batch(
+                                observations=observations,
+                                user_id=user_id,
+                                user_name=username,
+                                model=llm_model,
+                                llm_client=llm_client,
+                                session=session,
+                                propose_prompt=PROPOSE_PROMPT,
+                                similar_prompt=SIMILAR_PROMPT,
+                                revise_prompt=REVISE_PROMPT,
+                            )
+                            logger.info(f"Processed observations for {username}:{user_id}: {result}")
                     
                 except Exception as e:
                     logger.error(f"Error calling proposition service for {username}:{user_id}: {e}", exc_info=True)
@@ -219,8 +231,6 @@ async def _process_user_observations_stateless(
                     except Exception as requeue_error:
                         logger.error(f"Failed to re-queue observations: {requeue_error}")
                     raise
-                finally:
-                    await session.close()
                 
             except Exception as e:
                 logger.error(f"Error processing observations for {username}:{user_id}: {e}", exc_info=True)
@@ -264,38 +274,80 @@ async def validate_token(authorization: str | None = Header(None)) -> dict[str, 
         raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
 
 # ============================================================================
-# Gum Instance Management
+# Configuration & Constants
 # ============================================================================
-_gums: Dict[str, GumClass] = {}
-_lock = asyncio.Lock()
 
-async def _create_gum_for_user(user_name: str, model: str | None = None, api_base: str | None = None, min_batch_size: int = 5, max_batch_size: int = 50) -> GumClass:
-    obs = Text()
-    g = GumClass(user_name, model or "gpt-4o-mini", obs, min_batch_size=min_batch_size, max_batch_size=max_batch_size, api_base=api_base)
-    await g.__aenter__()
-    return g
+def _get_llm_config() -> tuple[str, str | None, str | None]:
+    """Get LLM configuration from environment.
+    
+    Returns:
+        tuple: (model_name, api_base, api_key)
+        - If GUM_LM_API_BASE is set: use Ollama with MODEL_NAME
+        - Otherwise: use OpenAI with OPENAI_API_KEY and OPENAI_MODEL
+    """
+    gum_lm_api_base = os.getenv("GUM_LM_API_BASE")
+    
+    if gum_lm_api_base:
+        # Use Ollama
+        model_name = os.getenv("MODEL_NAME", "llama3.1:8b")
+        api_key = os.getenv("GUM_LM_API_KEY")
+        return model_name, gum_lm_api_base, api_key
+    else:
+        # Use OpenAI
+        model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        api_key = os.getenv("OPENAI_API_KEY")
+        return model_name, None, api_key
 
-async def get_or_create_gum(user_name: str, model: str | None = None, api_base: str | None = None) -> GumClass:
-    async with _lock:
-        if user_name in _gums:
-            return _gums[user_name]
-        g = await _create_gum_for_user(user_name, model=model, api_base=api_base)
-        _gums[user_name] = g
-        logger.info(f"Created gum instance for user '{user_name}'")
-        return g
+# ============================================================================
+# Stateless Helper Functions (No Gum Instances)
+# ============================================================================
 
 async def _user_exists_in_db(username: str) -> bool:
     """Check if a user exists in the database."""
-    from sqlalchemy import select
     try:
-        g = await get_or_create_gum(username)
-        async with g._session() as session:
-            res = await session.execute(select(User).where(User.username == username))
-            user = res.scalars().first()
-            return user is not None
+        engine, Session = await init_db()
+        async with Session() as session:
+            async with session.begin():
+                res = await session.execute(select(User).where(User.username == username))
+                user = res.scalars().first()
+                return user is not None
     except Exception as e:
         logger.error(f"Error checking user existence: {e}")
         return False
+
+
+async def _get_recent_propositions(user_id: int, limit: int = 10) -> list[Dict[str, Any]]:
+    """Fetch recent propositions for a user directly from database."""
+    try:
+        engine, Session = await init_db()
+        async with Session() as session:
+            async with session.begin():
+                # Query recent propositions for the user
+                res = await session.execute(
+                    select(Proposition)
+                    .where(Proposition.user_id == user_id)
+                    .order_by(Proposition.created_at.desc())
+                    .limit(limit)
+                )
+                propositions = res.scalars().all()
+                
+                out = []
+                for p in propositions:
+                    out.append({
+                        "id": p.id,
+                        "text": p.text,
+                        "reasoning": p.reasoning,
+                        "confidence": p.confidence,
+                        "created_at": p.created_at.isoformat() if p.created_at else None,
+                        "observations": [
+                            {"id": o.id, "content": o.content}
+                            for o in getattr(p, "observations", [])
+                        ]
+                    })
+                return out
+    except Exception as e:
+        logger.error(f"Error fetching recent propositions for user {user_id}: {e}")
+        return []
 
 @app.post("/users/{user}/observe")
 async def observe_text(user: str, payload: ObservePayload, token: dict = Depends(validate_token)):
@@ -370,37 +422,28 @@ async def recent(user: str, limit: int = 10, token: dict = Depends(validate_toke
     if token_user != user:
         raise HTTPException(status_code=403, detail="Token does not match requested user")
     
-    # Verify the user exists in the database
-    if not await _user_exists_in_db(user):
-        raise HTTPException(status_code=404, detail="User not found")
+    # Get user_id from token claims
+    user_id = token.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=500, detail="user_id not found in token")
     
-    g = await get_or_create_gum(user)
-    props = await g.recent(limit=limit, include_observations=True)
-    out = []
-    for p in props:
-        out.append({
-            "id": p.id,
-            "text": p.text,
-            "reasoning": p.reasoning,
-            "confidence": p.confidence,
-            "created_at": p.created_at.isoformat() if p.created_at else None,
-            "observations": [ {"id": o.id, "content": o.content} for o in getattr(p, "observations", []) ]
-        })
-    return out
+    # Fetch recent propositions directly from database (stateless)
+    props = await _get_recent_propositions(user_id, limit=limit)
+    return props
 
 @app.on_event("startup")
 async def _startup():
-    """Start the background batch processor on server startup."""
     global _background_task
+    print("[STARTUP] FastAPI startup event triggered!")
     logger.info("API startup: starting background batch processor")
     _background_task = asyncio.create_task(_background_batch_processor())
 
 
 @app.on_event("shutdown")
 async def _shutdown():
-    """Shutdown the background batch processor and clean up resources."""
+    """Shutdown the background batch processor."""
     global _background_task
-    logger.info("API shutdown: stopping background batch processor and cleaning up gum instances")
+    logger.info("API shutdown: stopping background batch processor")
     
     # Cancel background task
     if _background_task:
@@ -409,29 +452,17 @@ async def _shutdown():
             await _background_task
         except asyncio.CancelledError:
             pass
-    
-    # Clean up gum instances from background worker (handled by background task on cancel)
-    # Also clean up any instances in _gums dict
-    async with _lock:
-        for user, g in list(_gums.items()):
-            try:
-                await g.__aexit__(None, None, None)
-            except Exception:
-                logger.exception("Error shutting down gum for user %s", user)
-        _gums.clear()
 
 @app.post("/users/login")
 async def login_user(payload: LoginPayload):
     if not payload.username or not payload.password:
         raise HTTPException(status_code=400, detail="username and password required")
 
-    g: GumClass = await get_or_create_gum(payload.username)
-    return await login_user_service(payload, g)
+    return await login_user_service(payload)
 
 @app.post("/users/register")
 async def register_user(payload: RegisterPayload):
     if not payload.username or not payload.username.strip():
         raise HTTPException(status_code=400, detail="username is required")
 
-    g = await get_or_create_gum(payload.username)
-    return await register_user_service(payload, g)
+    return await register_user_service(payload)

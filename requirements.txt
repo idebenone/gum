@@ -6,4 +6,7 @@ python-dotenv
 scikit-learn
 aiosqlite
 greenlet
-persist-queue
+redis
+fastapi
+uvicorn
+PyJWT

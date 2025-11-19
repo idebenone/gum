@@ -12,8 +12,6 @@ The main entrypoint is `process_observation_batch(...)` which:
 5. Returns a result dict with counts and status
 """
 
-import asyncio
-import json
 import logging
 from uuid import uuid4
 from typing import Dict, Any, List
@@ -23,19 +21,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import insert
 from openai import AsyncOpenAI
 
-from gum.models import Observation, Proposition, observation_proposition
-from gum.db_utils import (
+from ..models import Observation, Proposition, observation_proposition
+from ..utils.db_utils import (
     filter_propositions,
     revise_propositions,
     get_related_observations,
 )
-from gum.schemas import (
+from ..schemas.gum_schemas import (
     PropositionSchema,
     RelationSchema,
     Update,
     get_schema,
 )
-from gum.utils.llm_utils import generate_and_search
+from ..utils.llm_utils import generate_and_search
 
 logger = logging.getLogger("gum.api.proposition_service")
 
