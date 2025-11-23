@@ -13,6 +13,8 @@ The main entrypoint is `process_observation_batch(...)` which:
 """
 
 import logging
+
+import json
 from uuid import uuid4
 from typing import Dict, Any, List
 from datetime import datetime, timezone
@@ -34,6 +36,7 @@ from ..schemas.gum_schemas import (
     get_schema,
 )
 from ..utils.llm_utils import generate_and_search
+from ..prompts.gum_prompts import AUDIT_PROMPT
 
 logger = logging.getLogger("gum.api.proposition_service")
 
@@ -118,6 +121,30 @@ async def process_observation_batch(
                 continue
             seen.add(key)
 
+            # --- AUDIT FUNCTIONALITY ---
+            # Build audit prompt
+            audit_prompt = AUDIT_PROMPT.replace("{user_name}", user_name)
+            audit_prompt = audit_prompt.replace("{user_input}", obs['content'])
+            # For now, we use empty past_interaction
+            audit_prompt = audit_prompt.replace("{past_interaction}", "")
+
+            audit_rsp = await llm_client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": audit_prompt}],
+                response_format={"type": "json_object"},
+                temperature=0.0,
+            )
+            audit_decision = None
+            try:
+                audit_decision = json.loads(audit_rsp.choices[0].message.content)
+            except Exception as e:
+                logger.error(f"Audit LLM response parsing failed: {e}")
+                audit_decision = {"transmit_data": True}
+
+            if not audit_decision.get("transmit_data", True):
+                logger.warning(f"Audit blocked transmission for observation {obs['id']} (observer={obs['observer_name']})")
+                continue
+
             observation = Observation(
                 observer_name=obs['observer_name'],
                 user_id=user_id,
@@ -161,7 +188,7 @@ async def process_observation_batch(
         # Apply proposition updates
         logger.info("Applying proposition updates...")
         await _handle_identical(session, identical, inserted_observations)
-        await _handle_similar(session, similar, inserted_observations, revise_prompt, llm_client, model)
+        await _handle_similar(session, similar, inserted_observations, revise_prompt, llm_client, model, user_id)
         await _handle_different(session, different, inserted_observations)
 
         await session.commit()
@@ -201,6 +228,7 @@ async def _handle_similar(
     revise_prompt: str,
     llm_client: AsyncOpenAI,
     model: str,
+    user_id: str,
 ) -> None:
     """Revise similar propositions and attach observations."""
     if not similar:
@@ -234,6 +262,7 @@ async def _handle_similar(
             version=1,
             revision_group=revision_group,
             observations=rel_obs,
+            user_id=user_id,
         )
         session.add(new_prop)
 

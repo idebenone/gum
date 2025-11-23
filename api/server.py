@@ -21,6 +21,7 @@ from uuid import uuid4
 
 import jwt
 from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
 from .models import User, Proposition
@@ -33,11 +34,22 @@ from .services.redis_service import RedisObservationService
 from .services.proposition_service import process_observation_batch
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
+from .prompts.gum_prompts import PROPOSE_PROMPT, SIMILAR_PROMPT, REVISE_PROMPT
 load_dotenv()
 
 logger = logging.getLogger("gum.api")
 logger.setLevel(logging.INFO)
+
 app = FastAPI()
+
+# Enable CORS for all origins (customize as needed)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Change to specific origins in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 redis_service = RedisObservationService(
     redis_url=os.getenv("REDIS_URL", "redis://localhost:6379")
@@ -185,9 +197,6 @@ async def _process_user_observations_stateless(
                 
                 if not observations:
                     return
-                
-                # Import prompts from gum package
-                from gum.prompts.gum import PROPOSE_PROMPT, SIMILAR_PROMPT, REVISE_PROMPT
                 
                 # Initialize DB and get Session factory
                 engine, Session = await init_db()
@@ -349,7 +358,7 @@ async def _get_recent_propositions(user_id: int, limit: int = 10) -> list[Dict[s
         logger.error(f"Error fetching recent propositions for user {user_id}: {e}")
         return []
 
-@app.post("/users/{user}/observe")
+@app.post("/api/users/{user}/observe")
 async def observe_text(user: str, payload: ObservePayload, token: dict = Depends(validate_token)):
     """Queue text observation for a user via Redis.
     
@@ -403,7 +412,7 @@ async def observe_text(user: str, payload: ObservePayload, token: dict = Depends
         logger.error(f"Error queuing observation for user {user}: {e}")
         raise HTTPException(status_code=500, detail="Failed to queue observation")
 
-@app.get("/users/{user}/recent")
+@app.get("/api/users/{user}/recent")
 async def recent(user: str, limit: int = 10, token: dict = Depends(validate_token)):
     """Fetch recent propositions for a user.
     
@@ -453,14 +462,14 @@ async def _shutdown():
         except asyncio.CancelledError:
             pass
 
-@app.post("/users/login")
+@app.post("/api/login")
 async def login_user(payload: LoginPayload):
     if not payload.username or not payload.password:
         raise HTTPException(status_code=400, detail="username and password required")
 
     return await login_user_service(payload)
 
-@app.post("/users/register")
+@app.post("/api/register")
 async def register_user(payload: RegisterPayload):
     if not payload.username or not payload.username.strip():
         raise HTTPException(status_code=400, detail="username is required")

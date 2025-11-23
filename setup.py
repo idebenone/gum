@@ -14,7 +14,6 @@ setup(
         "scikit-learn",
         "aiosqlite",
         "greenlet",
-        "persist-queue",
     ],
     entry_points={
         'console_scripts': [

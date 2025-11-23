@@ -2,8 +2,8 @@ import json
 from uuid import uuid4
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
-from gum.db_utils import search_propositions_bm25
-from ..schemas import PropositionItem, PropositionSchema, Update, get_schema
+from .db_utils import search_propositions_bm25
+from ..schemas.gum_schemas import PropositionItem, PropositionSchema, Update, get_schema
 from ..models import Proposition
 from logging import Logger
 

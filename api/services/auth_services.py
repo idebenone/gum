@@ -31,7 +31,7 @@ async def login_user_service(payload: LoginPayload):
     now = datetime.utcnow()
     exp = now + timedelta(hours=24)
     token = jwt.encode({"sub": user.username, "user_id": user.id, "exp": exp}, secret, algorithm="HS256")
-    return {"access_token": token, "token_type": "bearer", "expires_at": exp.isoformat()}
+    return {"access_token": token}
 
 
 async def register_user_service(payload: RegisterPayload):
