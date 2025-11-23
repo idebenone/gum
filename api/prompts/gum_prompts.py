@@ -32,7 +32,6 @@ Example output format:
   "transmit_data": true
 }"""
 
-
 PROPOSE_PROMPT = """You are a helpful assistant tasked with analyzing user behavior based on transcribed activity.
 
 # Analysis

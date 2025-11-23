@@ -12,7 +12,7 @@ export default function ChatInputComponent({
   onSubmit,
 }: ChatInputProps) {
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && text.trim() !== "") {
       e.preventDefault();
       setText("");
       onSubmit();

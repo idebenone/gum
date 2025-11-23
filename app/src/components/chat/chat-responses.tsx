@@ -2,28 +2,41 @@ import type { ChatResponse } from "@/lib/types/chat";
 
 interface ChatResponsesProps {
   responses: ChatResponse[];
+  filteredResponses?: ChatResponse[];
 }
 
 export default function ChatResponsesComponent({
   responses,
-}: ChatResponsesProps) {
+  filteredResponses,
+  inputText, // pass the current input text
+}: ChatResponsesProps & { inputText: string }) {
+
   return (
-    <div>
-      {responses.map((response) => (
-        <div
-          key={response.id}
-          className={`my-2 p-2 rounded-xl ${
-            response.sender === "user"
-              ? "border border-muted self-end"
-              : "bg-gray-200 self-start"
-          } max-w-[80%]`}
-        >
-          <p className="whitespace-pre-wrap">{response.content}</p>
-          <span className="text-xs text-gray-500">
-            {new Date(response.timestamp).toLocaleTimeString()}
-          </span>
-        </div>
-      ))}
+    <div className="overflow-y-scroll">
+      <div className="p-4 columns-4 gap-2 [column-fill:balance]">
+        {responses.map((response) => {
+          const isMatch =
+            inputText && filteredResponses
+              ? filteredResponses.some((r) => r.id === response.id)
+              : false;
+
+          return (
+            <div
+              key={response.id}
+              className={`
+                break-inside-avoid mb-2 inline-block w-full p-3 rounded-xl border shadow-sm animate-chat-bubble
+                transition-all duration-300
+                ${isMatch ? "bg-muted opacity-100" : inputText ? "opacity-30 blur-[1px]" : "opacity-100"}
+              `}
+            >
+              <p className="whitespace-pre-wrap line-clamp-6">
+                {response.content}
+              </p>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
+
