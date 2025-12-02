@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package swagata;
+
+option go_package = "gateway/server/pb;pb";
+
+service ActionService {
+  rpc CreateAction (CreateActionRequest) returns (ActionResponse);
+  rpc GetActions (GetActionsRequest) returns (GetActionsResponse);
+  rpc UpdateActionState (UpdateActionStateRequest) returns (ActionResponse);
+}
+
+message CreateActionRequest {
+  string user_id = 1;
+  ActionItem action = 2;
+}
+
+message GetActionsRequest {
+  string user_id = 1;
+  string state = 2; // e.g., "pending", "completed"
+}
+
+message UpdateActionStateRequest {
+  string action_id = 1;
+  string new_state = 2;
+}
+
+message ActionItem {
+  string id = 1;
+  string type = 2; // e.g., "reminder", "calendar_event"
+  string description = 3;
+  string category = 4; // e.g., "Calendar", "Notification"
+  string payload = 5; // JSON or structured data
+  string state = 6; // "pending", "done", etc.
+  string created_at = 7;
+  string updated_at = 8;
+}
+
+message ActionResponse {
+  ActionItem action = 1;
+}
+
+message GetActionsResponse {
+  repeated ActionItem actions = 1;
+}

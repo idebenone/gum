@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package user;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/any.proto";
+
+option go_package = "user_service/pb;pb";
+
+service UserService {
+  rpc RegisterUser (RegisterUserRequest) returns (UserServiceResponse);
+  rpc LoginUser (LoginUserRequest) returns (UserServiceResponse);
+  rpc LogoutUser (LogoutUserRequest) returns (UserServiceResponse);
+}
+
+message RegisterUserRequest {
+  string username = 1;
+  string password = 2;
+  string email = 3;
+  string first_name = 4;
+  string last_name = 5;
+  google.protobuf.Timestamp dob = 6; 
+  string place = 7;
+  string gender = 8;
+}
+
+message UserServiceResponse {
+  string response_time = 1;
+  bool error_status = 2;
+  string message = 3;  
+  google.protobuf.Any data = 4;
+}
+
+message LoginUserRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message LogoutUserRequest {
+  string user_id = 1;
+}
+
+message Token {
+  string token = 1;
+}

@@ -48,7 +48,7 @@ class PropositionProcessingError(Exception):
 
 async def process_observation_batch(
     observations: List[Dict[str, Any]],
-    user_id: int,
+    user_id: str,
     user_name: str,
     model: str,
     llm_client: AsyncOpenAI,
@@ -198,7 +198,7 @@ async def process_observation_batch(
         }
 
     except Exception as e:
-        print(f"Error processing batch: {e}", exc_info=True)
+        logger.error(f"Error processing batch: {e}", exc_info=True)
         await session.rollback()
         raise PropositionProcessingError(f"Batch processing failed: {str(e)}") from e
 

@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package observation;
+
+service ObservationService {
+  rpc AddObservations (AddObservationsRequest) returns (AddObservationsResponse);
+}
+
+message Observation {
+  string id = 1;
+  string observer_name = 2;
+  string user_id = 3;
+  string content = 4;
+  string content_type = 5;
+}
+
+message AddObservationsRequest {
+  repeated Observation observations = 1;
+}
+
+message AddObservationsResponse {
+  bool success = 1;
+  string message = 2;
+}

@@ -1,0 +1,13 @@
+openai
+SQLAlchemy
+pydantic
+sqlalchemy-utils
+python-dotenv
+scikit-learn
+aiosqlite
+greenlet
+
+redis
+grpcio
+grpcio-tools
+asyncpg
