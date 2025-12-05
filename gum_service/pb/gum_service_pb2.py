@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x11gum_service.proto\x12\x0bobservation\"h\n\x0bObservation\x12\n\n\x02id\x18\x01 \x01(\t\x12\x15\n\robserver_name\x18\x02 \x01(\t\x12\x0f\n\x07user_id\x18\x03 \x01(\t\x12\x0f\n\x07\x63ontent\x18\x04 \x01(\t\x12\x14\n\x0c\x63ontent_type\x18\x05 \x01(\t\"H\n\x16\x41\x64\x64ObservationsRequest\x12.\n\x0cobservations\x18\x01 \x03(\x0b\x32\x18.observation.Observation\";\n\x17\x41\x64\x64ObservationsResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t2r\n\x12ObservationService\x12\\\n\x0f\x41\x64\x64Observations\x12#.observation.AddObservationsRequest\x1a$.observation.AddObservationsResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x11gum_service.proto\x12\x0bgum_service\"h\n\x0bObservation\x12\n\n\x02id\x18\x01 \x01(\t\x12\x15\n\robserver_name\x18\x02 \x01(\t\x12\x0f\n\x07user_id\x18\x03 \x01(\t\x12\x0f\n\x07\x63ontent\x18\x04 \x01(\t\x12\x14\n\x0c\x63ontent_type\x18\x05 \x01(\t\"H\n\x16\x41\x64\x64ObservationsRequest\x12.\n\x0cobservations\x18\x01 \x03(\x0b\x32\x18.gum_service.Observation\";\n\x17\x41\x64\x64ObservationsResponse\x12\x0f\n\x07success\x18\x01 \x01(\x08\x12\x0f\n\x07message\x18\x02 \x01(\t2j\n\nGumService\x12\\\n\x0f\x41\x64\x64Observations\x12#.gum_service.AddObservationsRequest\x1a$.gum_service.AddObservationsResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -37,6 +37,6 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_ADDOBSERVATIONSREQUEST']._serialized_end=212
   _globals['_ADDOBSERVATIONSRESPONSE']._serialized_start=214
   _globals['_ADDOBSERVATIONSRESPONSE']._serialized_end=273
-  _globals['_OBSERVATIONSERVICE']._serialized_start=275
-  _globals['_OBSERVATIONSERVICE']._serialized_end=389
+  _globals['_GUMSERVICE']._serialized_start=275
+  _globals['_GUMSERVICE']._serialized_end=381
 # @@protoc_insertion_point(module_scope)

@@ -1,8 +1,10 @@
 syntax = "proto3";
 
-package observation;
+package gum_service;
 
-service ObservationService {
+option go_package = "gum_service/pb;gumpb";
+
+service GumService {
   rpc AddObservations (AddObservationsRequest) returns (AddObservationsResponse);
 }
 

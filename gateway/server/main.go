@@ -6,15 +6,17 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/idebenone/gum/common/client"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	pb "gateway/pb"
-	userpb "user_service/pb"
+	pb "github.com/idebenone/gum/gateway/server/pb"
 )
 
 var serviceMap = map[string]string{
 	"user": "localhost:6001",
+	"gum":  "localhost:6002",
 }
 
 type ActionServiceServer struct {
@@ -22,7 +24,10 @@ type ActionServiceServer struct {
 }
 
 type UserGatewayServer struct {
-	userpb.UnimplementedUserServiceServer
+	client.UnimplementedUserServiceServer
+}
+type GumGatewayServer struct {
+	client.UnimplementedGumServiceServer
 }
 
 func (s *ActionServiceServer) CreateAction(ctx context.Context, req *pb.CreateActionRequest) (*pb.ActionResponse, error) {
@@ -37,19 +42,40 @@ func (s *ActionServiceServer) UpdateActionState(ctx context.Context, req *pb.Upd
 	return &pb.ActionResponse{}, nil
 }
 
-func (s *UserGatewayServer) RegisterUser(ctx context.Context, req *userpb.RegisterUserRequest) (*userpb.UserServiceResponse, error) {
+func (s UserGatewayServer) RegisterUser(ctx context.Context, req *client.RegisterUserRequest) (*client.UserServiceResponse, error) {
 	conn, err := grpc.NewClient(serviceMap["user"], grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to UserService: %v", err)
 	}
 	defer conn.Close()
-	client := userpb.NewUserServiceClient(conn)
+	client := client.NewUserServiceClient(conn)
 	return client.RegisterUser(ctx, req)
+}
+
+func (s UserGatewayServer) LoginUser(ctx context.Context, req *client.LoginUserRequest) (*client.UserServiceResponse, error) {
+	conn, err := grpc.NewClient(serviceMap["user"], grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to UserService: %v", err)
+	}
+	defer conn.Close()
+	client := client.NewUserServiceClient(conn)
+	return client.LoginUser(ctx, req)
+}
+
+func (g GumGatewayServer) SubmitObservation(ctx context.Context, req *client.AddObservationsRequest) (*client.AddObservationsResponse, error) {
+	conn, err := grpc.NewClient(serviceMap["gum"], grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to GumService: %v", err)
+	}
+	defer conn.Close()
+	client := client.NewGumServiceClient(conn)
+	return client.AddObservations(ctx, req)
 }
 
 func main() {
 	serviceMap := map[string]string{
 		"user": "localhost:6001",
+		"gum":  "localhost:6002",
 	}
 	grpcClients := InitGRPCClients(serviceMap)
 	router := SetupRoutes(grpcClients)

@@ -1,9 +1,8 @@
-module user_service
+module github.com/idebenone/gum/user_service
 
 go 1.24.3
 
 require (
-	common v0.0.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	golang.org/x/crypto v0.43.0
 	google.golang.org/grpc v1.77.0
@@ -26,4 +25,4 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251022142026-3a174f9686a8 // indirect
 )
 
-replace common => ../common
+replace github.com/idebenone/gum/common => ../common

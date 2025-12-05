@@ -2,7 +2,7 @@ import json
 from uuid import uuid4
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
-from .db_utils import search_propositions_bm25
+from .db_utils import search_propositions_postgres_fts
 from ..schemas.gum_schemas import PropositionItem, PropositionSchema, Update, get_schema
 from ..models import Proposition
 from logging import Logger
@@ -77,7 +77,7 @@ async def generate_and_search(
         drafts.append(draft)
 
         with session.no_autoflush:
-            hits = await search_propositions_bm25(
+            hits = await search_propositions_postgres_fts(
                 session, f"{draft.text}\n{draft.reasoning}", user_id=user_id, mode="OR",
                 include_observations=False,
                 enable_mmr=False,

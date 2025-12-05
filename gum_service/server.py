@@ -7,7 +7,7 @@ import asyncio
 from .worker.redis_worker import _background_batch_processor
 import os
 
-class ObservationServiceServicer(gum_service_pb2_grpc.ObservationServiceServicer):
+class GumServiceServicer(gum_service_pb2_grpc.GumServiceServicer):
     def __init__(self, redis_service):
         self.redis_service = redis_service
 
@@ -30,10 +30,10 @@ async def serve_async():
     server = grpc.aio.server()
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
     redis_service = RedisObservationService(redis_url)
-    gum_service_pb2_grpc.add_ObservationServiceServicer_to_server(
-        ObservationServiceServicer(redis_service), server)
-    server.add_insecure_port('[::]:50051')
-    print("gRPC server started on port 50051.")
+    gum_service_pb2_grpc.add_GumServiceServicer_to_server(
+        GumServiceServicer(redis_service), server)
+    server.add_insecure_port('[::]:6002')
+    print("gRPC server started on port 6002.")
     await asyncio.gather(
         server.start(),
         _background_batch_processor(redis_service),

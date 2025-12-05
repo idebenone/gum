@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from . import gum_service_pb2 as gum__service__pb2
+import gum_service_pb2 as gum__service__pb2
 
 GRPC_GENERATED_VERSION = '1.76.0'
 GRPC_VERSION = grpc.__version__
@@ -25,7 +25,7 @@ if _version_not_supported:
     )
 
 
-class ObservationServiceStub(object):
+class GumServiceStub(object):
     """Missing associated documentation comment in .proto file."""
 
     def __init__(self, channel):
@@ -35,13 +35,13 @@ class ObservationServiceStub(object):
             channel: A grpc.Channel.
         """
         self.AddObservations = channel.unary_unary(
-                '/observation.ObservationService/AddObservations',
+                '/gum_service.GumService/AddObservations',
                 request_serializer=gum__service__pb2.AddObservationsRequest.SerializeToString,
                 response_deserializer=gum__service__pb2.AddObservationsResponse.FromString,
                 _registered_method=True)
 
 
-class ObservationServiceServicer(object):
+class GumServiceServicer(object):
     """Missing associated documentation comment in .proto file."""
 
     def AddObservations(self, request, context):
@@ -51,7 +51,7 @@ class ObservationServiceServicer(object):
         raise NotImplementedError('Method not implemented!')
 
 
-def add_ObservationServiceServicer_to_server(servicer, server):
+def add_GumServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'AddObservations': grpc.unary_unary_rpc_method_handler(
                     servicer.AddObservations,
@@ -60,13 +60,13 @@ def add_ObservationServiceServicer_to_server(servicer, server):
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'observation.ObservationService', rpc_method_handlers)
+            'gum_service.GumService', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('observation.ObservationService', rpc_method_handlers)
+    server.add_registered_method_handlers('gum_service.GumService', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
-class ObservationService(object):
+class GumService(object):
     """Missing associated documentation comment in .proto file."""
 
     @staticmethod
@@ -83,7 +83,7 @@ class ObservationService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/observation.ObservationService/AddObservations',
+            '/gum_service.GumService/AddObservations',
             gum__service__pb2.AddObservationsRequest.SerializeToString,
             gum__service__pb2.AddObservationsResponse.FromString,
             options,

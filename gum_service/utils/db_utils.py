@@ -104,7 +104,8 @@ def build_fts_query(raw: str, mode: str = "OR") -> str:
     else:  # implicit AND
         return " ".join(tokens)
 
-async def search_propositions_bm25(
+
+async def search_propositions_postgres_fts(
     session: AsyncSession,
     user_query: str,
     *,
@@ -117,7 +118,13 @@ async def search_propositions_bm25(
     enable_decay: bool = True,
     enable_mmr: bool = True,
 ) -> list[tuple["Proposition", float]]:
-
+    """
+    Search propositions using Postgres full-text search (FTS).
+    - Uses to_tsvector/plainto_tsquery for FTS.
+    - Uses ts_rank_cd for ranking (not BM25).
+    - Optionally applies MMR (diversity) using TF-IDF/cosine similarity.
+    - Legacy name 'bm25' is replaced; this is not true BM25 ranking.
+    """
     q = build_fts_query(user_query, mode)
     has_query = bool(q)
 
@@ -181,10 +188,16 @@ async def search_propositions_bm25(
         )
     else:
         # --- 1-b  No user query ------------------------------
+        # No user query: return most recent propositions, score=0.0
         stmt = (
-            select(Proposition, literal_column("0.0").label("bm25"))
+            select(Proposition, literal_column("0.0").label("score"))
             .order_by(Proposition.created_at.desc())
         )
+    #
+    # NOTE: This function replaces the old SQLite FTS5/BM25 logic.
+    # Postgres FTS does not support BM25 natively; ts_rank_cd is used for ranking.
+    # If true BM25 is required, consider a custom implementation or extension.
+
 
     # --------------------------------------------------------
     # 2  Time filtering & eager-load

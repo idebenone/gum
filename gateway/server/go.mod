@@ -1,13 +1,16 @@
-module gateway
+module github.com/idebenone/gum/gateway/server
 
 go 1.24.3
 
 require (
-	common v0.0.0
-	github.com/golang-jwt/jwt/v5 v5.3.0
+	github.com/idebenone/gum/common v0.0.0
 	google.golang.org/grpc v1.77.0
 	google.golang.org/protobuf v1.36.10
-	user_service v0.0.0
+)
+
+require (
+	github.com/idebenone/gum/gum_service v0.0.0 // indirect
+	github.com/idebenone/gum/user_service v0.0.0 // indirect
 )
 
 require (
@@ -18,6 +21,8 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251124214823-79d6a2a48846 // indirect
 )
 
-replace user_service => ../../user_service
+replace github.com/idebenone/gum/common => ../../common
 
-replace common => ../../common
+replace github.com/idebenone/gum/gum_service => ../../gum_service
+
+replace github.com/idebenone/gum/user_service => ../../user_service

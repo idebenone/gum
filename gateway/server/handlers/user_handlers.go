@@ -1,16 +1,16 @@
 package handlers
 
 import (
-	"common/types"
 	"encoding/json"
 	"net/http"
 	"time"
-	userpb "user_service/pb"
+
+	"github.com/idebenone/gum/common/client"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func RegisterUserHandler(grpcClients *types.GRPCClients) http.HandlerFunc {
+func RegisterUserHandler(grpcClients *client.GRPCClients) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -39,7 +39,7 @@ func RegisterUserHandler(grpcClients *types.GRPCClients) http.HandlerFunc {
 			}
 			dobTimestamp = timestamppb.New(parsedDOB)
 		}
-		req := &userpb.RegisterUserRequest{
+		req := &client.RegisterUserRequest{
 			Username:  payload.Username,
 			Password:  payload.Password,
 			Email:     payload.Email,
@@ -59,7 +59,7 @@ func RegisterUserHandler(grpcClients *types.GRPCClients) http.HandlerFunc {
 	}
 }
 
-func LoginUserHandler(grpcClients *types.GRPCClients) http.HandlerFunc {
+func LoginUserHandler(grpcClients *client.GRPCClients) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -73,7 +73,7 @@ func LoginUserHandler(grpcClients *types.GRPCClients) http.HandlerFunc {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
 			return
 		}
-		req := &userpb.LoginUserRequest{
+		req := &client.LoginUserRequest{
 			Username: payload.Username,
 			Password: payload.Password,
 		}
